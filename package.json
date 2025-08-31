@@ -1,0 +1,44 @@
+{
+  "name": "meteora-script",
+  "version": "1.0.0",
+  "main": "index.js",
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "dev": "ts-node src/index.ts",
+    "watch": "tsc --watch",
+    "add-lp": "npx ts-node-dev scripts/addLPPosition.ts",
+    "zap-out": "npx ts-node-dev scripts/zapOutExample.ts",
+    "swap": "npx ts-node-dev scripts/swapExample.ts",
+    "bot": "npx ts-node-dev scripts/telegramBot.ts",
+    "test-zap": "ts-node scripts/testZapOut.ts",
+    "token-utils": "ts-node scripts/tokenUtilsExample.ts",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "description": "",
+  "devDependencies": {
+    "@types/node": "^24.3.0",
+    "@types/node-cron": "^3.0.11",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.9.2"
+  },
+  "dependencies": {
+    "@coral-xyz/anchor": "^0.30.1",
+    "@meteora-ag/cp-amm-sdk": "^1.1.1",
+    "@meteora-ag/dlmm": "^1.1.8",
+    "@meteora-ag/zap-sdk": "^1.0.8",
+    "@solana/spl-token": "^0.4.8",
+    "@solana/web3.js": "^1.95.4",
+    "@types/node-telegram-bot-api": "^0.64.7",
+    "@types/ws": "^8.18.1",
+    "bn.js": "^5.2.1",
+    "decimal.js": "^10.6.0",
+    "dotenv": "^17.2.1",
+    "node-cron": "^3.0.3",
+    "node-telegram-bot-api": "^0.66.0",
+    "ws": "^8.18.3"
+  }
+}
