@@ -7,7 +7,8 @@ async function main() {
     telegramToken: process.env.TELEGRAM_BOT_TOKEN || "",
     chatId: process.env.TELEGRAM_CHAT_ID || "",
     privateKey: process.env.SOLANA_PRIVATE_KEY || "",
-    rpcUrl: clusterApiUrl("mainnet-beta"),
+    // rpcUrl: clusterApiUrl("mainnet-beta"),
+    rpcUrl: process.env.RPC_URL || clusterApiUrl("mainnet-beta"),
     swapUrl: "https://lite-api.jup.ag",
   };
   const bot = new MeteoraBot(config);

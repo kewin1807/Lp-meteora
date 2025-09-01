@@ -72,22 +72,22 @@ export class MeteoraBot {
 
     // Help command
     this.bot.onText(/\/help/, (msg: any) => {
-      const helpText = `🤖 LP Trading Bot Commands
+      const helpText = `<b>🤖 LP Trading Bot Commands</b>
 
-📊 Portfolio Commands:
+<b>📊 Portfolio Commands:</b>
 /positions - View all LP positions
 /balance - Check token balances
 
-⚡ Quick Actions:
+<b>⚡ Quick Actions:</b>
 /trending - Get trending tokens (5m)
 /clear_all - Clear all positions (zapout)
 
-⚙️ Automation:
+<b>⚙️ Automation:</b>
 /start_auto - Start automated trading
 /stop_auto - Stop automated trading
 /status - Bot status
 
-📋 Info:
+<b>📋 Info:</b>
 /wallet - Show wallet address
 /help - Show this help`;
       this.sendMessage(helpText);
@@ -171,7 +171,7 @@ export class MeteoraBot {
     // Wallet command
     this.bot.onText(/\/wallet/, async (msg: any) => {
       const walletAddress = this.swapManager.getWalletPublicKey().toString();
-      this.sendMessage(`💳 *Wallet Address:*\n\`${walletAddress}\``);
+      this.sendMessage(`💳 <b>Wallet Address:</b>\n<code>${walletAddress}</code>`);
     });
   }
 
@@ -309,36 +309,84 @@ ${this.createSolscanLink(result.signature)}`;
   private async executeAutomatedTrading() {
     this.sendMessage("🤖 Starting automated trading cycle...");
 
-    // 1. Clear all positions
-    // await this.handleClearAllCommand();
-
-    // await new Promise(resolve => setTimeout(resolve, 3000));
-
-    // 2. Get trending tokens
-    const trending = await this.getTrendingTokens();
-    // 3. Filter for DAMM V2 pools and get first one
-    const dammV2Token = await this.findFirstDammV2Pool(trending);
-
-    if (!dammV2Token) {
-      this.sendMessage("⚠️ No suitable DAMM V2 pool found");
-      return;
-    }
-    const pools = await this.getAllPoolPostions();
-    for (const pool of pools) {
-      if (pool?.pool === dammV2Token?.pairAddress) {
-        this.sendMessage("⚠️ The current trending pool is not changed")
-        return;
-      }
-    }
-    await this.handleClearAllCommand();
-
-    await new Promise(resolve => setTimeout(resolve, 3000));
+    const MAX_TRENDING_COUNT = parseInt(process.env.MAX_TRENDING_COUNT || "5"); // 5 or 10
+    const MAX_SOL_PER_TOKEN = parseFloat(process.env.MAX_SOL_PER_TOKEN || "0.1");
 
     try {
-      await this.createAutomatedPosition(dammV2Token);
-      this.sendMessage(`✅ Automated position created for ${dammV2Token.symbol}`);
+      // 1. Get current trending tokens
+      const trending = await this.getTrendingTokens();
+      const validTrending = trending.filter(token => this.isValidToken(token)).slice(0, MAX_TRENDING_COUNT);
+
+      if (validTrending.length === 0) {
+        this.sendMessage("⚠️ No valid trending tokens found");
+        return;
+      }
+
+      // 2. Get current positions and extract token addresses
+      const currentPositions = await this.getAllPoolPostions();
+      const currentTokens = new Set();
+      for (const pos of currentPositions) {
+        const tokenAddress = await this.getTokenFromPool(pos.pool);
+        if (tokenAddress) currentTokens.add(tokenAddress);
+      }
+
+      const trendingTokens = new Set(validTrending.map(token => token.address));
+
+      // 3. Calculate SOL allocation per token
+      const solBalance = await this.tokenUtils.getTokenBalanceFormattedAuto(
+        this.swapManager.getWalletPublicKey(),
+        new PublicKey(SOLANA_MINT)
+      );
+      const availableSol = Number(solBalance.formatted) * 0.95; // Use 90% of balance
+      const solPerToken = Math.min(availableSol / validTrending.length, MAX_SOL_PER_TOKEN);
+
+      this.sendMessage(`📊 <b>Trading Plan:</b>
+Trending tokens: ${validTrending.length}
+Available SOL: ${availableSol.toFixed(4)}
+SOL per token: ${solPerToken.toFixed(4)}`);
+
+      // 4. ZapOut tokens no longer in trending
+      const tokensToRemove = Array.from(currentTokens).filter(token => !trendingTokens.has(token as string));
+      if (tokensToRemove.length > 0) {
+        this.sendMessage(`🗑️ Removing ${tokensToRemove.length} outdated positions...`);
+        for (const tokenAddress of tokensToRemove) {
+          try {
+            const position = currentPositions.find(pos => this.getTokenFromPoolSync(pos.pool) === tokenAddress);
+            if (position) {
+              await this.zapOutPosition(position.pool);
+              this.sendMessage(`✅ Zapped out from ${(tokenAddress as string).slice(0, 8)}...`);
+            }
+          } catch (error) {
+            console.error(`Failed to zap out ${tokenAddress}:`, error);
+          }
+        }
+        await new Promise(resolve => setTimeout(resolve, 2000));
+      }
+
+      // 5. Create positions for new trending tokens
+      const tokensToAdd = validTrending.filter(token => !currentTokens.has(token.address));
+      let total_position = 0;
+      if (tokensToAdd.length > 0) {
+        this.sendMessage(`🚀 Creating ${tokensToAdd.length} new positions...`);
+        for (const token of tokensToAdd) {
+          try {
+            await this.createAutomatedPosition(token, solPerToken);
+            this.sendMessage(`✅ Position created for ${token.symbol}`);
+            total_position += 1
+            await new Promise(resolve => setTimeout(resolve, 3000)); // Wait between positions
+          } catch (error) {
+            this.sendMessage(`❌ Failed to create position for ${token.symbol}: ${error}`);
+          }
+        }
+      }
+
+      // 6. Summary
+      this.sendMessage(`🎯 <b>Trading cycle completed!</b>
+Active positions: ${total_position}
+Total SOL used: ${(tokensToAdd.length * solPerToken).toFixed(4)}`);
+
     } catch (error) {
-      this.sendMessage(`❌ Failed to create automated position: ${error}`);
+      this.sendMessage(`❌ Automated trading error: ${error}`);
     }
   }
 
@@ -355,27 +403,24 @@ ${this.createSolscanLink(result.signature)}`;
 
   private getStatus(): string {
     const walletAddress = this.swapManager.getWalletPublicKey().toString();
-    return `
-🤖 *Bot Status*
+    return `<b>🤖 Bot Status</b>
 
-Status: ${'🟢 Running'}
-Wallet: \`${walletAddress}\`
+Status: 🟢 Running
+Wallet: <code>${walletAddress}</code>
 RPC: ${this.config.rpcUrl}
-Scheduled Jobs: ${this.scheduledJobs.length}
-    `;
+Scheduled Jobs: ${this.scheduledJobs.length}`;
   }
 
   private sendMessage(text: string) {
     try {
-      // Escape special characters for Markdown V2 to avoid 400 errors
-      const escapedText = this.escapeMarkdownV2(text);
-      this.bot.sendMessage(this.config.chatId, escapedText, {
-        parse_mode: 'MarkdownV2',
+      // Try HTML format first (more reliable than MarkdownV2)
+      this.bot.sendMessage(this.config.chatId, text, {
+        parse_mode: 'HTML',
         disable_web_page_preview: true
       });
     } catch (error) {
-      console.error('Failed to send message:', error);
-      // Fallback to plain text if markdown fails
+      console.error('Failed to send HTML message:', error);
+      // Fallback to plain text
       try {
         this.bot.sendMessage(this.config.chatId, text);
       } catch (fallbackError) {
@@ -384,22 +429,17 @@ Scheduled Jobs: ${this.scheduledJobs.length}
     }
   }
 
-  private escapeMarkdownV2(text: string): string {
-    // Escape special characters for Telegram MarkdownV2
-    return text.replace(/[_*\[\]()~`>#+=|{}.!-]/g, '\\$&');
-  }
-
   private createSolscanLink(signature: string): string {
-    return `[View on Solscan](https://solscan.io/tx/${signature})`;
+    return `<a href="https://solscan.io/tx/${signature}">View on Solscan</a>`;
   }
 
   private createDexScreenerLink(tokenAddress: string, symbol?: string): string {
     const displayText = symbol ? `${symbol} on DexScreener` : 'View on DexScreener';
-    return `[${displayText}](https://dexscreener.com/solana/${tokenAddress})`;
+    return `<a href="https://dexscreener.com/solana/${tokenAddress}">${displayText}</a>`;
   }
 
   private createPoolLink(poolAddress: string): string {
-    return `[Pool on DexScreener](https://dexscreener.com/solana/${poolAddress})`;
+    return `<a href="https://dexscreener.com/solana/${poolAddress}">Pool on DexScreener</a>`;
   }
 
   // Helper methods - implement these based on your needs
@@ -451,14 +491,52 @@ Scheduled Jobs: ${this.scheduledJobs.length}
     return null;
   }
 
-  private async createAutomatedPosition(token: TokenProfile): Promise<void> {
+  private isValidToken(token: TokenProfile): boolean {
+    // Filter criteria for valid tokens
+    return (
+      // token.volume.h24 > 10000 && // Min volume $10k
+      // token.liquidity.usd > 5000 && // Min liquidity $5k
+      Number(token.volume.h24) / Number(token.liquidity.usd) >= 1
+      // token.priceUsd > 0 // Valid price
+    );
+  }
+
+  private async getTokenFromPool(poolAddress: string): Promise<string | null> {
+    try {
+      const poolState = await this.cpAmm.fetchPoolState(new PublicKey(poolAddress));
+      // Return the non-SOL token address (tokenA if tokenB is SOL, otherwise tokenA)
+      if (poolState.tokenBMint.toBase58() === SOLANA_MINT) {
+        return poolState.tokenAMint.toBase58();
+      } else {
+        return poolState.tokenAMint.toBase58();
+      }
+    } catch (error) {
+      console.error(`Failed to get token from pool ${poolAddress}:`, error);
+      return null;
+    }
+  }
+
+  private getTokenFromPoolSync(poolAddress: string): string | null {
+    // Synchronous version - you might need to cache pool states
+    // For now, return null and handle async version
+    return null;
+  }
+
+  private async createAutomatedPosition(token: TokenProfile, maxSolAmount?: number): Promise<void> {
     // Implement automated position creation
     // fetch the sol balance and swap we should split 2 parts, swap and create liquid
     try {
-      const solBalance = await this.tokenUtils.getTokenBalanceFormattedAuto(this.swapManager.getWalletPublicKey(), new PublicKey("So11111111111111111111111111111111111111112"));
+      let usableBalance: number;
 
-      // Only use 90% of balance to leave room for fees and rent
-      const usableBalance = Math.min(Number(solBalance.formatted), 1) * 0.9;
+      if (maxSolAmount) {
+        // Use provided SOL amount
+        usableBalance = maxSolAmount;
+      } else {
+        // Fallback to old logic
+        const solBalance = await this.tokenUtils.getTokenBalanceFormattedAuto(this.swapManager.getWalletPublicKey(), new PublicKey("So11111111111111111111111111111111111111112"));
+        usableBalance = Math.min(Number(solBalance.formatted), 1) * 0.9;
+      }
+
       const swapAmount = usableBalance / 2;
 
       // Convert SOL amount to lamports (integer)
@@ -488,7 +566,7 @@ ${this.createDexScreenerLink(token.address, token.symbol)}`;
       const remainingSolAmount = new Decimal(usableBalance).minus(new Decimal(swapAmount));
 
       console.log({
-        totalSolBalance: Number(solBalance.formatted),
+        totalSolBalance: Number(usableBalance),
         usableBalance,
         swapAmount,
         swapAmountLamports,

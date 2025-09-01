@@ -445,7 +445,7 @@ export class ZapOutManager {
         this.config.inputMint,
         this.config.outputMint,
         inputAmount,
-        10,
+        30,
         this.config.slippage,
         true,
         true,
