@@ -14,6 +14,9 @@
     "declarationMap": true,
     "sourceMap": true
   },
+  "ts-node": {
+    "esm": true
+  },
   "include": [
     "src/**/*"
 , "scripts/addLPPosition.ts"  ],
