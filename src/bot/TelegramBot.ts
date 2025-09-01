@@ -310,9 +310,9 @@ ${this.createSolscanLink(result.signature)}`;
     this.sendMessage("🤖 Starting automated trading cycle...");
 
     // 1. Clear all positions
-    await this.handleClearAllCommand();
+    // await this.handleClearAllCommand();
 
-    await new Promise(resolve => setTimeout(resolve, 3000));
+    // await new Promise(resolve => setTimeout(resolve, 3000));
 
     // 2. Get trending tokens
     const trending = await this.getTrendingTokens();
@@ -323,6 +323,16 @@ ${this.createSolscanLink(result.signature)}`;
       this.sendMessage("⚠️ No suitable DAMM V2 pool found");
       return;
     }
+    const pools = await this.getAllPoolPostions();
+    for (const pool of pools) {
+      if (pool?.pool === dammV2Token?.pairAddress) {
+        this.sendMessage("⚠️ The current trending pool is not changed")
+        return;
+      }
+    }
+    await this.handleClearAllCommand();
+
+    await new Promise(resolve => setTimeout(resolve, 3000));
 
     try {
       await this.createAutomatedPosition(dammV2Token);
