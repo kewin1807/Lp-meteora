@@ -604,7 +604,7 @@ Scheduled Jobs: ${this.scheduledJobs.length}`;
         privateKey: this.config.privateKey,
         rpcUrl: this.config.rpcUrl,
         maxAccounts: 30,
-        slippage: 50,
+        slippage: 70,
       });
       const swapMessage = `✅ Swapped ${swapAmount} SOL to ${token.symbol}
 Amount: ${swapResult.outputAmount}
