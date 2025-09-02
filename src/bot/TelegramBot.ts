@@ -333,20 +333,9 @@ ${this.createSolscanLink(result.signature)}`;
 
       const trendingTokens = new Set(validTrending.map(token => token.pairAddress));
 
-      // 3. Calculate SOL allocation per token
-      const solBalance = await this.tokenUtils.getTokenBalanceFormattedAuto(
-        this.swapManager.getWalletPublicKey(),
-        new PublicKey(SOLANA_MINT)
-      );
-      const availableSol = Number(solBalance.formatted) * 0.95; // Use 90% of balance
-      const solPerToken = Math.min(availableSol / validTrending.length, MAX_SOL_PER_TOKEN);
 
-      this.sendMessage(`📊 <b>Trading Plan:</b>
-Trending tokens: ${validTrending.length}
-Available SOL: ${availableSol.toFixed(4)}
-SOL per token: ${solPerToken.toFixed(4)}`);
 
-      // 4. ZapOut tokens no longer in trending
+      // 3. ZapOut tokens no longer in trending
       const poolRemove = Array.from(currentPool).filter(token => !trendingTokens.has(token as string));
       if (poolRemove.length > 0) {
         this.sendMessage(`🗑️ Removing ${poolRemove.length} outdated positions...`);
@@ -362,8 +351,21 @@ SOL per token: ${solPerToken.toFixed(4)}`);
 
           }
         }
-        await new Promise(resolve => setTimeout(resolve, 2000));
+        await new Promise(resolve => setTimeout(resolve, 3000));
       }
+
+      // 4. Calculate SOL allocation per token
+      const solBalance = await this.tokenUtils.getTokenBalanceFormattedAuto(
+        this.swapManager.getWalletPublicKey(),
+        new PublicKey(SOLANA_MINT)
+      );
+      const availableSol = Number(solBalance.formatted) * 0.96; // Use 96% of balance
+      const solPerToken = Math.min(availableSol / validTrending.length, MAX_SOL_PER_TOKEN);
+
+      this.sendMessage(`📊 <b>Trading Plan:</b>
+Trending tokens: ${validTrending.length}
+Available SOL: ${availableSol.toFixed(4)}
+SOL per token: ${solPerToken.toFixed(4)}`);
 
       // 5. Create positions for new trending tokens
       const tokensToAdd = validTrending.filter(token => !currentPool.has(token.pairAddress));
