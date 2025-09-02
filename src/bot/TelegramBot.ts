@@ -324,13 +324,14 @@ ${this.createSolscanLink(result.signature)}`;
 
       // 2. Get current positions and extract token addresses
       const currentPositions = await this.getAllPoolPostions();
-      const currentTokens = new Set();
+      const currentPool = new Set();
       for (const pos of currentPositions) {
-        const tokenAddress = await this.getTokenFromPool(pos.pool);
-        if (tokenAddress) currentTokens.add(tokenAddress);
+        // const tokenAddress = await this.getTokenFromPool(pos.pool);
+        // if (tokenAddress) currentTokens.add(tokenAddress);
+        currentPool.add(pos.pool);
       }
 
-      const trendingTokens = new Set(validTrending.map(token => token.address));
+      const trendingTokens = new Set(validTrending.map(token => token.pairAddress));
 
       // 3. Calculate SOL allocation per token
       const solBalance = await this.tokenUtils.getTokenBalanceFormattedAuto(
@@ -346,25 +347,26 @@ Available SOL: ${availableSol.toFixed(4)}
 SOL per token: ${solPerToken.toFixed(4)}`);
 
       // 4. ZapOut tokens no longer in trending
-      const tokensToRemove = Array.from(currentTokens).filter(token => !trendingTokens.has(token as string));
-      if (tokensToRemove.length > 0) {
-        this.sendMessage(`🗑️ Removing ${tokensToRemove.length} outdated positions...`);
-        for (const tokenAddress of tokensToRemove) {
+      const poolRemove = Array.from(currentPool).filter(token => !trendingTokens.has(token as string));
+      if (poolRemove.length > 0) {
+        this.sendMessage(`🗑️ Removing ${poolRemove.length} outdated positions...`);
+        for (const pool of poolRemove) {
           try {
-            const position = currentPositions.find(pos => this.getTokenFromPoolSync(pos.pool) === tokenAddress);
-            if (position) {
-              await this.zapOutPosition(position.pool);
-              this.sendMessage(`✅ Zapped out from ${(tokenAddress as string).slice(0, 8)}...`);
-            }
+            // const position = currentPositions.find(pos => this.getTokenFromPoolSync(pos.pool) === tokenAddress);
+            // if (position) {
+            await this.zapOutPosition(pool as string);
+            this.sendMessage(`✅ Zapped out from ${(pool as string).slice(0, 8)}...`);
           } catch (error) {
-            console.error(`Failed to zap out ${tokenAddress}:`, error);
+            console.error(`Failed to zap out ${pool}:`, error);
+            this.sendMessage(`❌ Zapped out from ${(pool as string).slice(0, 8)}...`);
+
           }
         }
         await new Promise(resolve => setTimeout(resolve, 2000));
       }
 
       // 5. Create positions for new trending tokens
-      const tokensToAdd = validTrending.filter(token => !currentTokens.has(token.address));
+      const tokensToAdd = validTrending.filter(token => !currentPool.has(token.pairAddress));
       let total_position = 0;
       if (tokensToAdd.length > 0) {
         this.sendMessage(`🚀 Creating ${tokensToAdd.length} new positions...`);
