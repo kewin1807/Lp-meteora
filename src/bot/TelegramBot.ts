@@ -410,6 +410,11 @@ ${this.createSolscanLink(result.signature)}`;
   Available SOL: ${availableSol.toFixed(4)}
   SOL per token: ${solPerToken.toFixed(4)}`);
         this.sendMessage(`🚀 Creating ${tokensToAdd.length} new positions...`);
+        if (solPerToken < 0.009) {
+          this.sendMessage(`🎯 <b>Trading cycle completed!</b>
+        Not enough SOL to create positions`);
+          return;
+        }
         for (const token of tokensToAdd) {
           try {
             await this.createAutomatedPosition(token, solPerToken);
