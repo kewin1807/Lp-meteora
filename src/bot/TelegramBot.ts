@@ -402,7 +402,7 @@ ${this.createSolscanLink(result.signature)}`;
 
       let total_position = 0;
       if (tokensToAdd.length > 0) {
-        const availableSol = Number(solBalance.formatted) * 0.96; // Use 96% of balance
+        const availableSol = Number(solBalance.formatted) * 0.9; // Use 96% of balance
         const solPerToken = Math.min(availableSol / tokensToAdd.length, MAX_SOL_PER_TOKEN);
 
         this.sendMessage(`📊 <b>Trading Plan:</b>
