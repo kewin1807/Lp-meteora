@@ -359,18 +359,20 @@ ${this.createSolscanLink(result.signature)}`;
         this.swapManager.getWalletPublicKey(),
         new PublicKey(SOLANA_MINT)
       );
-      const availableSol = Number(solBalance.formatted) * 0.96; // Use 96% of balance
-      const solPerToken = Math.min(availableSol / validTrending.length, MAX_SOL_PER_TOKEN);
 
-      this.sendMessage(`📊 <b>Trading Plan:</b>
-Trending tokens: ${validTrending.length}
-Available SOL: ${availableSol.toFixed(4)}
-SOL per token: ${solPerToken.toFixed(4)}`);
 
       // 5. Create positions for new trending tokens
       const tokensToAdd = validTrending.filter(token => !currentPool.has(token.pairAddress));
+
       let total_position = 0;
       if (tokensToAdd.length > 0) {
+        const availableSol = Number(solBalance.formatted) * 0.96; // Use 96% of balance
+        const solPerToken = Math.min(availableSol / tokensToAdd.length, MAX_SOL_PER_TOKEN);
+
+        this.sendMessage(`📊 <b>Trading Plan:</b>
+  Trending tokens: ${tokensToAdd.length}
+  Available SOL: ${availableSol.toFixed(4)}
+  SOL per token: ${solPerToken.toFixed(4)}`);
         this.sendMessage(`🚀 Creating ${tokensToAdd.length} new positions...`);
         for (const token of tokensToAdd) {
           try {
@@ -382,12 +384,18 @@ SOL per token: ${solPerToken.toFixed(4)}`);
             this.sendMessage(`❌ Failed to create position for ${token.symbol}: ${error}`);
           }
         }
+
+        // 6. Summary
+        this.sendMessage(`🎯 <b>Trading cycle completed!</b>
+        Active positions: ${total_position}
+        Total SOL used: ${(tokensToAdd.length * solPerToken).toFixed(4)}`);
+      }
+      else {
+        this.sendMessage(`🎯 <b>Trading cycle completed!</b>
+        No new positions to create`);
       }
 
-      // 6. Summary
-      this.sendMessage(`🎯 <b>Trading cycle completed!</b>
-Active positions: ${total_position}
-Total SOL used: ${(tokensToAdd.length * solPerToken).toFixed(4)}`);
+
 
     } catch (error) {
       this.sendMessage(`❌ Automated trading error: ${error}`);
