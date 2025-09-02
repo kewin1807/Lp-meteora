@@ -402,7 +402,7 @@ ${this.createSolscanLink(result.signature)}`;
 
       let total_position = 0;
       if (tokensToAdd.length > 0) {
-        const availableSol = Number(solBalance.formatted) * 0.9; // Use 96% of balance
+        const availableSol = Number(solBalance.formatted) * 0.989; // Use 96% of balance
         const solPerToken = Math.min(availableSol / tokensToAdd.length, MAX_SOL_PER_TOKEN);
 
         this.sendMessage(`📊 <b>Trading Plan:</b>
@@ -583,10 +583,10 @@ Scheduled Jobs: ${this.scheduledJobs.length}`;
       } else {
         // Fallback to old logic
         const solBalance = await this.tokenUtils.getTokenBalanceFormattedAuto(this.swapManager.getWalletPublicKey(), new PublicKey("So11111111111111111111111111111111111111112"));
-        usableBalance = Math.min(Number(solBalance.formatted), 1) * 0.9;
+        usableBalance = Math.min(Number(solBalance.formatted), 1);
       }
 
-      const swapAmount = usableBalance / 2;
+      const swapAmount = usableBalance * 0.45;
 
       // Convert SOL amount to lamports (integer)
       const swapAmountLamports = Math.floor(swapAmount * 1e9);
