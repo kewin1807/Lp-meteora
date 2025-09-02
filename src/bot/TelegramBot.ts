@@ -6,9 +6,10 @@ import { SwapManager } from '../utils/swapUtils';
 import { getProfileTokenAddress, getTokenTrending, TokenProfile, TokenUtils, TPoolLabel, TrendingType } from '../utils/tokenUtils';
 import * as cron from 'node-cron';
 import { SOLANA_MINT } from '../constants';
-import { CpAmm } from '@meteora-ag/cp-amm-sdk';
+import { CpAmm, getUnClaimReward, PositionState, getAmountAFromLiquidityDelta, getAmountBFromLiquidityDelta, Rounding } from '@meteora-ag/cp-amm-sdk';
 import Decimal from 'decimal.js';
 import "dotenv/config"
+import { BN } from '@coral-xyz/anchor';
 
 export interface BotConfig {
   telegramToken: string;
@@ -24,7 +25,8 @@ export interface Position {
   unlocked_liquidity?: string,
   permanent_locked_liquidity?: string,
   fee_a?: string
-  fee_b?: string
+  fee_b?: string,
+  positionState?: PositionState
 }
 
 export class MeteoraBot {
@@ -184,14 +186,48 @@ export class MeteoraBot {
       return;
     }
 
-    let message = "📊 *Your LP Positions:*\n\n";
+    let message = `<b>📊 Your LP Positions</b>\n\n`;
     for (const position of positions) {
-      message += `🔒 Pool: ${position.pool}\n`;
-      message += `   Vested Liquidity: ${position.vested_liquidity}\n`;
-      message += `   Unlocked Liquidity: ${position.unlocked_liquidity}\n`;
-      message += `   Permanent Locked Liquidity: ${position.permanent_locked_liquidity}\n`;
-      message += `   Fee A: ${position.fee_a}\n`;
-      message += `   Fee B: ${position.fee_b}\n`;
+
+      const poolState = await this.cpAmm.fetchPoolState(new PublicKey(position.pool as string));
+      const amountA = getAmountAFromLiquidityDelta(
+        new BN(position.unlocked_liquidity ?? '0'),
+        poolState.sqrtPrice,
+        poolState.sqrtMaxPrice,
+        Rounding.Down
+      );
+      const amountB = getAmountBFromLiquidityDelta(
+        new BN(position.unlocked_liquidity ?? '0'),
+        poolState.sqrtPrice,
+        poolState.sqrtMinPrice,
+        Rounding.Down
+      );
+
+      const unclaimed = getUnClaimReward(poolState, position.positionState as PositionState);
+      const feeDecimalsA = await this.tokenUtils.getTokenDecimals(poolState.tokenAMint);
+      const feeDecimalsB = await this.tokenUtils.getTokenDecimals(poolState.tokenBMint);
+
+      const tokenAMintStr = poolState.tokenAMint.toBase58();
+      const tokenBMintStr = poolState.tokenBMint.toBase58();
+
+      // Format deposit amounts to UI with decimals
+      const amountAUi = new Decimal(amountA.toString())
+        .div(new Decimal(10).pow(feeDecimalsA))
+        .toFixed(Math.min(feeDecimalsA, 6));
+      const amountBUi = new Decimal(amountB.toString())
+        .div(new Decimal(10).pow(feeDecimalsB))
+        .toFixed(Math.min(feeDecimalsB, 6));
+
+      const feeAUi = new Decimal(unclaimed.feeTokenA.toString())
+        .div(new Decimal(10).pow(feeDecimalsA))
+        .toFixed(Math.min(feeDecimalsA, 6));
+      const feeBUi = new Decimal(unclaimed.feeTokenB.toString())
+        .div(new Decimal(10).pow(feeDecimalsB))
+        .toFixed(Math.min(feeDecimalsB, 6));
+
+      message += `🔒 Pool: <code>${position.pool}</code>\n`;
+      message += `• Deposit: <b>${amountAUi}</b> ${tokenAMintStr.slice(0, 6)}… + <b>${amountBUi}</b> ${tokenBMintStr.slice(0, 6)}…\n`;
+      message += `• Unclaimed Fees: <b>${feeAUi}</b> ${tokenAMintStr.slice(0, 6)}… | <b>${feeBUi}</b> ${tokenBMintStr.slice(0, 6)}…\n`;
       message += `\n`;
     }
     this.sendMessage(message);
@@ -467,6 +503,7 @@ Scheduled Jobs: ${this.scheduledJobs.length}`;
       fee_b: item?.positionState?.metrics?.totalClaimedBFee?.toString(),
       unlocked_liquidity: item?.positionState?.unlockedLiquidity.toString(),
       permanent_locked_liquidity: item?.positionState?.permanentLockedLiquidity.toString(),
+      positionState: item?.positionState,
     }))
   }
 

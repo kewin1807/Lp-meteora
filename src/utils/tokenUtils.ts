@@ -19,34 +19,52 @@ export class TokenUtils {
    */
   async getTokenDecimals(
     tokenMint: PublicKey,
-    tokenProgram: PublicKey = TOKEN_PROGRAM_ID
+    tokenProgram?: PublicKey
   ): Promise<number> {
-    const cacheKey = `${tokenMint.toString()}_${tokenProgram.toString()}`;
+    // Try cache with provided or detected program
+    const detectedProgram = tokenProgram
+      ? tokenProgram
+      : (await this.connection.getAccountInfo(tokenMint))?.owner || TOKEN_PROGRAM_ID;
 
-    if (this.cache.has(cacheKey)) {
-      return this.cache.get(cacheKey)!;
+    const primaryCacheKey = `${tokenMint.toString()}_${detectedProgram.toString()}`;
+    if (this.cache.has(primaryCacheKey)) {
+      return this.cache.get(primaryCacheKey)!;
     }
 
-    try {
-      const mintInfo = await getMint(
-        this.connection,
-        tokenMint,
-        'confirmed',
-        tokenProgram
-      );
+    // Helper to fetch decimals with a specific program and cache
+    const tryGetWithProgram = async (program: PublicKey): Promise<number | null> => {
+      try {
+        const mintInfo = await getMint(
+          this.connection,
+          tokenMint,
+          'confirmed',
+          program
+        );
+        this.cache.set(`${tokenMint.toString()}_${program.toString()}`, mintInfo.decimals);
+        return mintInfo.decimals;
+      } catch {
+        return null;
+      }
+    };
 
-      this.cache.set(cacheKey, mintInfo.decimals);
-      return mintInfo.decimals;
-    } catch (error) {
-      console.warn(
-        `Failed to get decimals for token ${tokenMint.toString()}, defaulting to 6:`,
-        error
-      );
+    // 1) Try with detected or provided program first
+    const primary = await tryGetWithProgram(detectedProgram);
+    if (primary !== null) return primary;
 
-      // Cache the fallback value to avoid repeated failures
-      this.cache.set(cacheKey, 6);
-      return 6; // Default fallback for most SPL tokens
+    // 2) Fallback: try both standard programs if the first failed
+    const programsToTry: PublicKey[] = [TOKEN_PROGRAM_ID, (TOKEN_2022_PROGRAM_ID as unknown as PublicKey)].filter(
+      (p) => p.toString() !== detectedProgram.toString()
+    );
+
+    for (const p of programsToTry) {
+      const res = await tryGetWithProgram(p);
+      if (res !== null) return res;
     }
+
+    // 3) Final fallback: cache and return 6 to avoid repeated failures
+    this.cache.set(primaryCacheKey, 6);
+    console.warn(`Failed to detect decimals for ${tokenMint.toString()} using dynamic program detection. Falling back to 6.`);
+    return 6;
   }
 
   /**
