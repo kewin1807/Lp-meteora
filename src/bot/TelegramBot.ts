@@ -70,6 +70,7 @@ export class MeteoraBot {
       { command: 'start_auto', description: 'Start automated trading' },
       { command: 'stop_auto', description: 'Stop automated trading' },
       { command: 'clear_all', description: 'Clear all positions' },
+      { command: 'clear_position', description: 'Clear specific position' },
     ]);
 
     // Help command
@@ -110,6 +111,16 @@ export class MeteoraBot {
         await this.handleBalanceCommand();
       } catch (error) {
         this.sendMessage(`❌ Error getting balance: ${error}`);
+      }
+    });
+
+    this.bot.onText(/\/clear_position (.+)/, async (msg: any, match: any) => {
+      try {
+        if (!match) return;
+        const [, poolAddress] = match;
+        await this.handleClearPositionCommand(poolAddress, PoolType.DAMM_V2);
+      } catch (error) {
+        this.sendMessage(`❌ Error clearing position: ${error}`);
       }
     });
 
@@ -326,6 +337,12 @@ ${this.createSolscanLink(result.signature)}`;
     } catch (error) {
       throw new Error(`Failed to clear positions: ${error}`);
     }
+  }
+
+  private async handleClearPositionCommand(poolAddress: string, poolType: PoolType = PoolType.DAMM_V2) {
+    this.sendMessage(`🧹 Clearing position: ${poolAddress.slice(0, 8)}...`);
+    await this.zapOutPosition(poolAddress, poolType);
+    this.sendMessage(`✅ Position cleared successfully!`);
   }
 
   private setupScheduledJobs() {
