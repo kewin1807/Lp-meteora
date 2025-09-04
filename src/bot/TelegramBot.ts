@@ -634,8 +634,7 @@ Scheduled Jobs: ${this.scheduledJobs.length}`;
       const swapAmount = usableBalance * 0.45;
 
       // Convert SOL amount to lamports (integer)
-      const swapAmountLamports = Math.floor(swapAmount * 1e9);
-      console.log({ swapAmount, swapAmountLamports });
+      const swapAmountLamports = new Decimal(swapAmount).mul(new Decimal(1e9)).toNumber();
 
       const swapResult = await this.swapManager.swapTokens({
         inputMint: new PublicKey(SOLANA_MINT),
@@ -644,7 +643,7 @@ Scheduled Jobs: ${this.scheduledJobs.length}`;
         privateKey: this.config.privateKey,
         rpcUrl: this.config.rpcUrl,
         maxAccounts: 30,
-        slippage: 70,
+        slippage: 100,
       });
       const swapMessage = `✅ Swapped ${swapAmount} SOL to ${token.symbol}
 Amount: ${swapResult.outputAmount}
