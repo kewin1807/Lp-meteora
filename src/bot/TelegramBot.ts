@@ -757,7 +757,7 @@ Scheduled Jobs: ${this.scheduledJobs.length}`;
         usableBalance = Math.min(Number(solBalance.formatted), 1);
       }
 
-      const swapAmount = Math.floor(usableBalance * 0.45).toFixed(6);
+      const swapAmount = (usableBalance * 0.45).toFixed(6);
 
       // Convert SOL amount to lamports (integer)
       const swapAmountLamports = new Decimal(swapAmount).mul(new Decimal(1e9)).toNumber();
@@ -799,8 +799,8 @@ ${this.createDexScreenerLink(token.address, token.symbol)}`;
       const liquidityResult = await this.createPositionWithRetry(
         token.pairAddress,
         tokenDecimals,
-        outputTokenAmount,
-        remainingSolAmount,
+        outputTokenAmountRaw,
+        remainingSolAmount.mul(new Decimal(1e9)),
         3 // 3 retry attempts
       );
 

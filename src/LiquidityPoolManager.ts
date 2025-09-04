@@ -185,7 +185,7 @@ export class LiquidityPoolManager {
         throw new Error(`Invalid tokenBAmount: ${this.config.tokenBAmount}`);
       }
 
-      console.log(`Creating position with amounts: TokenA=${tokenAAmount}, TokenB=${tokenBAmount}`);
+      console.log(`Creating position with amounts: TokenA=${tokenAAmount}, TokenB=${tokenBAmount.}`);
 
       let addLidTokenAAmount = this.config.tokenAAmount;
       let addLidTokenBAmount = this.config.tokenBAmount;

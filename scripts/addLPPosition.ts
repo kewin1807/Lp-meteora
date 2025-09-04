@@ -10,11 +10,11 @@ import Decimal from "decimal.js";
   const CONFIG: PoolConfig = {
     privateKey,
     rpcUrl: clusterApiUrl("mainnet-beta"),
-    pool: new PublicKey("7weJbY9fmyBwr4dMqPNSQXbQXBJ5W4mJiy2WcN2ereCr"),
-    tokenADecimals: 9,
+    pool: new PublicKey("HT3VVTqaiyQXAjtqN7ij61zqHuwQNoNPaqqSLXjCHmhq"),
+    tokenADecimals: 6,
     tokenBDecimals: 9,
-    tokenAAmount: new Decimal(47509.44).mul(new Decimal(1e9)),
-    tokenBAmount: new Decimal(0.05).mul(new Decimal(1e9)), // SOL
+    tokenAAmount: new Decimal(29797.2).mul(new Decimal(1e6)),
+    tokenBAmount: new Decimal(0.19).mul(new Decimal(1e9)), // SOL
   };
 
   // Create liquidity pool manager instance
