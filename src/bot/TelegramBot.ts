@@ -316,6 +316,8 @@ export class MeteoraBot {
 
     // Second pass: build message with price information
     let totalPortfolioValue = 0;
+    let totalFeesValue = 0;
+
     for (const data of positionData) {
       const { position, poolState, tokenAMintStr, tokenBMintStr, amountAUi, amountBUi, feeAUi, feeBUi } = data;
 
@@ -329,25 +331,42 @@ export class MeteoraBot {
       const tokenAPrice = tokenAInfo?.priceUsd ? `$${parseFloat(tokenAInfo.priceUsd).toFixed(6)}` : 'N/A';
       const tokenBPrice = tokenBInfo?.priceUsd ? `$${parseFloat(tokenBInfo.priceUsd).toFixed(6)}` : 'N/A';
 
-      // Calculate USD values
+      // Calculate USD values for deposits
       const amountAUsd = tokenAInfo?.priceUsd ?
         (parseFloat(amountAUi) * parseFloat(tokenAInfo.priceUsd)).toFixed(2) : 'N/A';
       const amountBUsd = tokenBInfo?.priceUsd ?
         (parseFloat(amountBUi) * parseFloat(tokenBInfo.priceUsd)).toFixed(2) : 'N/A';
 
-      // Add to total portfolio value
+      // Calculate USD values for fees
+      const feeAUsd = tokenAInfo?.priceUsd ?
+        (parseFloat(feeAUi) * parseFloat(tokenAInfo.priceUsd)).toFixed(2) : 'N/A';
+      const feeBUsd = tokenBInfo?.priceUsd ?
+        (parseFloat(feeBUi) * parseFloat(tokenBInfo.priceUsd)).toFixed(2) : 'N/A';
+
+      // Add to totals
       if (amountAUsd !== 'N/A') totalPortfolioValue += parseFloat(amountAUsd);
       if (amountBUsd !== 'N/A') totalPortfolioValue += parseFloat(amountBUsd);
+      if (feeAUsd !== 'N/A') totalFeesValue += parseFloat(feeAUsd);
+      if (feeBUsd !== 'N/A') totalFeesValue += parseFloat(feeBUsd);
+
+      // Calculate total position value
+      const positionValue = (amountAUsd !== 'N/A' ? parseFloat(amountAUsd) : 0) +
+        (amountBUsd !== 'N/A' ? parseFloat(amountBUsd) : 0);
+      const positionFees = (feeAUsd !== 'N/A' ? parseFloat(feeAUsd) : 0) +
+        (feeBUsd !== 'N/A' ? parseFloat(feeBUsd) : 0);
 
       message += `🔒 Pool: <code>${position.pool}</code>\n`;
       message += `• Deposit: <b>${amountAUi}</b> ${tokenASymbol} (${tokenAPrice}) = $${amountAUsd}\n`;
       message += `• Deposit: <b>${amountBUi}</b> ${tokenBSymbol} (${tokenBPrice}) = $${amountBUsd}\n`;
-      message += `• Unclaimed Fees: <b>${feeAUi}</b> ${tokenASymbol} | <b>${feeBUi}</b> ${tokenBSymbol}\n`;
+      message += `• Unclaimed Fees: <b>${feeAUi}</b> ${tokenASymbol} (${tokenAPrice}) = $${feeAUsd}\n`;
+      message += `• Unclaimed Fees: <b>${feeBUi}</b> ${tokenBSymbol} (${tokenBPrice}) = $${feeBUsd}\n`;
+      message += `• Position Value: $${positionValue.toFixed(2)} | Fees: $${positionFees.toFixed(2)}\n`;
       message += `\n`;
     }
 
-    // Add total portfolio value
-    message += `💰 <b>Total Portfolio Value: $${totalPortfolioValue.toFixed(2)}</b>`;
+    // Add total portfolio value and fees
+    message += `💰 <b>Total Portfolio Value: $${totalPortfolioValue.toFixed(2)}</b>\n`;
+    message += `💎 <b>Total Unclaimed Fees: $${totalFeesValue.toFixed(2)}</b>`;
     this.sendMessage(message);
   }
 
