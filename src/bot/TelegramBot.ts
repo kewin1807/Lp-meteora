@@ -757,7 +757,7 @@ Scheduled Jobs: ${this.scheduledJobs.length}`;
         usableBalance = Math.min(Number(solBalance.formatted), 1);
       }
 
-      const swapAmount = usableBalance * 0.45;
+      const swapAmount = Math.floor(usableBalance * 0.45).toFixed(6);
 
       // Convert SOL amount to lamports (integer)
       const swapAmountLamports = new Decimal(swapAmount).mul(new Decimal(1e9)).toNumber();
@@ -802,8 +802,8 @@ ${this.createDexScreenerLink(token.address, token.symbol)}`;
         pool: new PublicKey(token.pairAddress),
         tokenADecimals: tokenDecimals,
         tokenBDecimals: 9,
-        tokenAAmount: Number(outputTokenAmount.toNumber().toFixed(2)),
-        tokenBAmount: Math.min(remainingSolAmount.toNumber(), 0.05)
+        tokenAAmount: outputTokenAmount,
+        tokenBAmount: remainingSolAmount
       };
       // Create liquidity pool manager instance
       const liquidityManager = new LiquidityPoolManager(CONFIG);

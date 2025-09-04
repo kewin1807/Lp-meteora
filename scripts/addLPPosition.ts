@@ -2,6 +2,7 @@ import { clusterApiUrl, PublicKey, Keypair } from "@solana/web3.js";
 import { LiquidityPoolManager, PoolConfig } from "../src/LiquidityPoolManager";
 import * as fs from "fs";
 import "dotenv/config";
+import Decimal from "decimal.js";
 (async () => {
   // Load private key from file
   const privateKey = process.env['SOLANA_PRIVATE_KEY'] || ""
@@ -12,8 +13,8 @@ import "dotenv/config";
     pool: new PublicKey("7weJbY9fmyBwr4dMqPNSQXbQXBJ5W4mJiy2WcN2ereCr"),
     tokenADecimals: 9,
     tokenBDecimals: 9,
-    tokenAAmount: 47509.44,
-    tokenBAmount: 0.05, // SOL
+    tokenAAmount: new Decimal(47509.44).mul(new Decimal(1e9)),
+    tokenBAmount: new Decimal(0.05).mul(new Decimal(1e9)), // SOL
   };
 
   // Create liquidity pool manager instance

@@ -20,8 +20,8 @@ export interface PoolConfig {
   pool: PublicKey;
   tokenADecimals: number;
   tokenBDecimals: number;
-  tokenAAmount: number;
-  tokenBAmount: number;
+  tokenAAmount: Decimal;
+  tokenBAmount: Decimal;
 }
 
 export interface TokenInfo {
@@ -187,13 +187,8 @@ export class LiquidityPoolManager {
 
       console.log(`Creating position with amounts: TokenA=${tokenAAmount}, TokenB=${tokenBAmount}`);
 
-      // Calculate token amounts with decimals
-      const addLidTokenAAmount = new Decimal(tokenAAmount).mul(
-        new Decimal(10 ** this.config.tokenADecimals)
-      );
-      const addLidTokenBAmount = new Decimal(tokenBAmount).mul(
-        new Decimal(10 ** this.config.tokenBDecimals)
-      );
+      let addLidTokenAAmount = this.config.tokenAAmount;
+      let addLidTokenBAmount = this.config.tokenBAmount;
 
       // Generate position NFT
       const positionNft = Keypair.generate();
