@@ -198,8 +198,27 @@ export class MeteoraBot {
     }
 
     let message = `<b>📊 Your LP Positions</b>\n\n`;
-    for (const position of positions) {
 
+    // Collect all unique token addresses for batch price fetching
+    const tokenAddresses = new Set<string>();
+    const positionData: Array<{
+      position: any;
+      poolState: any;
+      amountA: any;
+      amountB: any;
+      unclaimed: any;
+      feeDecimalsA: number;
+      feeDecimalsB: number;
+      tokenAMintStr: string;
+      tokenBMintStr: string;
+      amountAUi: string;
+      amountBUi: string;
+      feeAUi: string;
+      feeBUi: string;
+    }> = [];
+
+    // First pass: collect data and token addresses
+    for (const position of positions) {
       const poolState = await this.cpAmm.fetchPoolState(new PublicKey(position.pool as string));
       const amountA = getAmountAFromLiquidityDelta(
         new BN(position.unlocked_liquidity ?? '0'),
@@ -221,6 +240,14 @@ export class MeteoraBot {
       const tokenAMintStr = poolState.tokenAMint.toBase58();
       const tokenBMintStr = poolState.tokenBMint.toBase58();
 
+      // Add non-SOL tokens to price fetching list
+      if (tokenAMintStr !== SOLANA_MINT) {
+        tokenAddresses.add(tokenAMintStr);
+      }
+      if (tokenBMintStr !== SOLANA_MINT) {
+        tokenAddresses.add(tokenBMintStr);
+      }
+
       // Format deposit amounts to UI with decimals
       const amountAUi = new Decimal(amountA.toString())
         .div(new Decimal(10).pow(feeDecimalsA))
@@ -236,11 +263,91 @@ export class MeteoraBot {
         .div(new Decimal(10).pow(feeDecimalsB))
         .toFixed(Math.min(feeDecimalsB, 6));
 
+      positionData.push({
+        position,
+        poolState,
+        amountA,
+        amountB,
+        unclaimed,
+        feeDecimalsA,
+        feeDecimalsB,
+        tokenAMintStr,
+        tokenBMintStr,
+        amountAUi,
+        amountBUi,
+        feeAUi,
+        feeBUi
+      });
+    }
+
+    // Fetch current prices for all tokens
+    let tokenPrices: Map<string, { priceUsd: string; symbol: string }> = new Map();
+
+    // Add SOL price (we'll fetch it separately)
+    let solPrice = '0';
+    try {
+      const solProfiles = await getProfileTokenAddress([SOLANA_MINT]);
+      if (solProfiles.length > 0) {
+        solPrice = String(solProfiles[0].priceUsd);
+        tokenPrices.set(SOLANA_MINT, {
+          priceUsd: solPrice,
+          symbol: 'SOL'
+        });
+      }
+    } catch (error) {
+      console.error('Error fetching SOL price:', error);
+    }
+
+    if (tokenAddresses.size > 0) {
+      try {
+        const tokenAddressArray = Array.from(tokenAddresses);
+        const profiles = await getProfileTokenAddress(tokenAddressArray);
+
+        for (const profile of profiles) {
+          tokenPrices.set(profile.address, {
+            priceUsd: String(profile.priceUsd),
+            symbol: profile.symbol
+          });
+        }
+      } catch (error) {
+        console.error('Error fetching token prices:', error);
+      }
+    }
+
+    // Second pass: build message with price information
+    let totalPortfolioValue = 0;
+    for (const data of positionData) {
+      const { position, poolState, tokenAMintStr, tokenBMintStr, amountAUi, amountBUi, feeAUi, feeBUi } = data;
+
+      // Get token symbols and prices
+      const tokenAInfo = tokenPrices.get(tokenAMintStr);
+      const tokenBInfo = tokenPrices.get(tokenBMintStr);
+
+      const tokenASymbol = tokenAInfo?.symbol || tokenAMintStr.slice(0, 6) + '…';
+      const tokenBSymbol = tokenBInfo?.symbol || tokenBMintStr.slice(0, 6) + '…';
+
+      const tokenAPrice = tokenAInfo?.priceUsd ? `$${parseFloat(tokenAInfo.priceUsd).toFixed(6)}` : 'N/A';
+      const tokenBPrice = tokenBInfo?.priceUsd ? `$${parseFloat(tokenBInfo.priceUsd).toFixed(6)}` : 'N/A';
+
+      // Calculate USD values
+      const amountAUsd = tokenAInfo?.priceUsd ?
+        (parseFloat(amountAUi) * parseFloat(tokenAInfo.priceUsd)).toFixed(2) : 'N/A';
+      const amountBUsd = tokenBInfo?.priceUsd ?
+        (parseFloat(amountBUi) * parseFloat(tokenBInfo.priceUsd)).toFixed(2) : 'N/A';
+
+      // Add to total portfolio value
+      if (amountAUsd !== 'N/A') totalPortfolioValue += parseFloat(amountAUsd);
+      if (amountBUsd !== 'N/A') totalPortfolioValue += parseFloat(amountBUsd);
+
       message += `🔒 Pool: <code>${position.pool}</code>\n`;
-      message += `• Deposit: <b>${amountAUi}</b> ${tokenAMintStr.slice(0, 6)}… + <b>${amountBUi}</b> ${tokenBMintStr.slice(0, 6)}…\n`;
-      message += `• Unclaimed Fees: <b>${feeAUi}</b> ${tokenAMintStr.slice(0, 6)}… | <b>${feeBUi}</b> ${tokenBMintStr.slice(0, 6)}…\n`;
+      message += `• Deposit: <b>${amountAUi}</b> ${tokenASymbol} (${tokenAPrice}) = $${amountAUsd}\n`;
+      message += `• Deposit: <b>${amountBUi}</b> ${tokenBSymbol} (${tokenBPrice}) = $${amountBUsd}\n`;
+      message += `• Unclaimed Fees: <b>${feeAUi}</b> ${tokenASymbol} | <b>${feeBUi}</b> ${tokenBSymbol}\n`;
       message += `\n`;
     }
+
+    // Add total portfolio value
+    message += `💰 <b>Total Portfolio Value: $${totalPortfolioValue.toFixed(2)}</b>`;
     this.sendMessage(message);
   }
 
