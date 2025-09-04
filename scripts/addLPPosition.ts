@@ -13,8 +13,8 @@ import Decimal from "decimal.js";
     pool: new PublicKey("HT3VVTqaiyQXAjtqN7ij61zqHuwQNoNPaqqSLXjCHmhq"),
     tokenADecimals: 6,
     tokenBDecimals: 9,
-    tokenAAmount: new Decimal(29797.2).mul(new Decimal(1e6)),
-    tokenBAmount: new Decimal(0.19).mul(new Decimal(1e9)), // SOL
+    tokenAAmount: new Decimal(11036.86).mul(new Decimal(1e6)),
+    tokenBAmount: new Decimal(0.1).mul(new Decimal(1e9)), // SOL
   };
 
   // Create liquidity pool manager instance

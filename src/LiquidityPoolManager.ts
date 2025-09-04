@@ -120,7 +120,14 @@ export class LiquidityPoolManager {
       const tokenAAmountInt = addLidTokenAAmount.floor().toString();
       const tokenBAmountInt = addLidTokenBAmount.floor().toString();
 
+      // Calculate slippage thresholds with buffer for transfer fees
+      // Add 5% buffer to account for transfer fees and slippage
+      const slippageBuffer = new Decimal(1.05); // 5% buffer
+      const tokenAAmountThreshold = addLidTokenAAmount.mul(slippageBuffer).floor().toString();
+      const tokenBAmountThreshold = addLidTokenBAmount.mul(slippageBuffer).floor().toString();
+
       console.log(`Creating position transaction with amounts: TokenA=${tokenAAmountInt}, TokenB=${tokenBAmountInt}`);
+      console.log(`Slippage thresholds: TokenA=${tokenAAmountThreshold}, TokenB=${tokenBAmountThreshold}`);
 
       return await this.cpAmm.createPositionAndAddLiquidity({
         owner: this.wallet.publicKey,
@@ -129,8 +136,8 @@ export class LiquidityPoolManager {
         liquidityDelta,
         maxAmountTokenA: new BN(tokenAAmountInt),
         maxAmountTokenB: new BN(tokenBAmountInt),
-        tokenAAmountThreshold: new BN(tokenAAmountInt),
-        tokenBAmountThreshold: new BN(tokenBAmountInt),
+        tokenAAmountThreshold: new BN(tokenAAmountThreshold),
+        tokenBAmountThreshold: new BN(tokenBAmountThreshold),
         tokenAMint: poolState.tokenAMint,
         tokenBMint: poolState.tokenBMint,
         tokenAProgram,
@@ -138,6 +145,58 @@ export class LiquidityPoolManager {
       });
     } catch (error) {
       console.error('Error in createPositionTransaction:', error);
+      console.error('TokenA amount:', addLidTokenAAmount.toString());
+      console.error('TokenB amount:', addLidTokenBAmount.toString());
+      throw error;
+    }
+  }
+
+  /**
+   * Create position transaction with retry-specific slippage
+   */
+  private async createPositionTransactionWithSlippage(
+    positionNft: Keypair,
+    liquidityDelta: any,
+    addLidTokenAAmount: Decimal,
+    addLidTokenBAmount: Decimal,
+    poolState: any,
+    tokenAProgram: PublicKey,
+    attempt: number
+  ) {
+    try {
+      // Convert to integer strings to avoid BN issues
+      const tokenAAmountInt = addLidTokenAAmount.floor().toString();
+      const tokenBAmountInt = addLidTokenBAmount.floor().toString();
+
+      // Calculate slippage thresholds with increasing buffer for retries
+      // Start with 5% buffer, increase by 2% each retry
+      const baseSlippageBuffer = new Decimal(1.05); // 5% base buffer
+      const retrySlippageBuffer = new Decimal(1 + (attempt - 1) * 0.02); // +2% each retry
+      const totalSlippageBuffer = baseSlippageBuffer.mul(retrySlippageBuffer);
+
+      const tokenAAmountThreshold = addLidTokenAAmount.mul(totalSlippageBuffer).floor().toString();
+      const tokenBAmountThreshold = addLidTokenBAmount.mul(totalSlippageBuffer).floor().toString();
+
+      console.log(`Creating position transaction with amounts: TokenA=${tokenAAmountInt}, TokenB=${tokenBAmountInt}`);
+      console.log(`Slippage thresholds (attempt ${attempt}): TokenA=${tokenAAmountThreshold}, TokenB=${tokenBAmountThreshold}`);
+      console.log(`Slippage buffer: ${totalSlippageBuffer.mul(100).sub(100).toFixed(2)}%`);
+
+      return await this.cpAmm.createPositionAndAddLiquidity({
+        owner: this.wallet.publicKey,
+        pool: this.config.pool,
+        positionNft: positionNft.publicKey,
+        liquidityDelta,
+        maxAmountTokenA: new BN(tokenAAmountInt),
+        maxAmountTokenB: new BN(tokenBAmountInt),
+        tokenAAmountThreshold: new BN(tokenAAmountThreshold),
+        tokenBAmountThreshold: new BN(tokenBAmountThreshold),
+        tokenAMint: poolState.tokenAMint,
+        tokenBMint: poolState.tokenBMint,
+        tokenAProgram,
+        tokenBProgram: TOKEN_PROGRAM_ID,
+      });
+    } catch (error) {
+      console.error('Error in createPositionTransactionWithSlippage:', error);
       console.error('TokenA amount:', addLidTokenAAmount.toString());
       console.error('TokenB amount:', addLidTokenBAmount.toString());
       throw error;
@@ -165,68 +224,84 @@ export class LiquidityPoolManager {
     );
   }
 
-  async createPositionAndAddLiquidity(): Promise<LiquidityPositionResult> {
-    try {
-      // Get pool and token information
-      const { poolState, tokenAProgram, tokenAInfo } = await this.getPoolAndTokenInfo();
+  async createPositionAndAddLiquidity(maxRetries: number = 3): Promise<LiquidityPositionResult> {
+    let lastError: Error | null = null;
 
-      if (!tokenAInfo) {
-        throw new Error("Token A info not found");
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      try {
+        console.log(`Position creation attempt ${attempt}/${maxRetries}`);
+
+        // Get pool and token information
+        const { poolState, tokenAProgram, tokenAInfo } = await this.getPoolAndTokenInfo();
+
+        if (!tokenAInfo) {
+          throw new Error("Token A info not found");
+        }
+
+        // Validate and sanitize input amounts
+        const tokenAAmount = Number(this.config.tokenAAmount);
+        const tokenBAmount = Number(this.config.tokenBAmount);
+
+        if (!isFinite(tokenAAmount) || tokenAAmount <= 0) {
+          throw new Error(`Invalid tokenAAmount: ${this.config.tokenAAmount}`);
+        }
+        if (!isFinite(tokenBAmount) || tokenBAmount <= 0) {
+          throw new Error(`Invalid tokenBAmount: ${this.config.tokenBAmount}`);
+        }
+
+        // Adjust amounts slightly for retries to handle precision issues
+        const amountReduction = new Decimal(1 - (attempt - 1) * 0.01); // Reduce by 1% each retry
+        let addLidTokenAAmount = this.config.tokenAAmount.mul(amountReduction);
+        let addLidTokenBAmount = this.config.tokenBAmount.mul(amountReduction);
+
+        console.log(`Creating position with amounts: TokenA=${addLidTokenAAmount.toString()}, TokenB=${addLidTokenBAmount.toString()}`);
+
+        // Generate position NFT
+        const positionNft = Keypair.generate();
+
+        // Calculate liquidity delta
+        const liquidityDelta = this.calculateLiquidityDelta(
+          addLidTokenAAmount,
+          addLidTokenBAmount,
+          poolState,
+          tokenAInfo
+        );
+
+        // Create position transaction with retry-specific slippage
+        const createPositionTx = await this.createPositionTransactionWithSlippage(
+          positionNft,
+          liquidityDelta,
+          addLidTokenAAmount,
+          addLidTokenBAmount,
+          poolState,
+          tokenAProgram,
+          attempt
+        );
+
+        // Build and execute transaction
+        const transaction = new Transaction();
+        transaction.add(...createPositionTx.instructions);
+
+        const signature = await this.executeTransaction(transaction, positionNft);
+
+        console.log(`Position created successfully on attempt ${attempt}`);
+        return {
+          position: derivePositionAddress(positionNft.publicKey).toString(),
+          positionNft: positionNft.publicKey.toString(),
+          signature,
+        };
+      } catch (error) {
+        lastError = error as Error;
+        console.error(`Position creation attempt ${attempt} failed:`, error);
+
+        if (attempt < maxRetries) {
+          console.log(`Retrying position creation in 2 seconds...`);
+          await new Promise(resolve => setTimeout(resolve, 2000));
+        }
       }
-
-      // Validate and sanitize input amounts
-      const tokenAAmount = Number(this.config.tokenAAmount);
-      const tokenBAmount = Number(this.config.tokenBAmount);
-
-      if (!isFinite(tokenAAmount) || tokenAAmount <= 0) {
-        throw new Error(`Invalid tokenAAmount: ${this.config.tokenAAmount}`);
-      }
-      if (!isFinite(tokenBAmount) || tokenBAmount <= 0) {
-        throw new Error(`Invalid tokenBAmount: ${this.config.tokenBAmount}`);
-      }
-
-      console.log(`Creating position with amounts: TokenA=${tokenAAmount}, TokenB=${tokenBAmount}`);
-
-      let addLidTokenAAmount = this.config.tokenAAmount;
-      let addLidTokenBAmount = this.config.tokenBAmount;
-
-      // Generate position NFT
-      const positionNft = Keypair.generate();
-
-      // Calculate liquidity delta
-      const liquidityDelta = this.calculateLiquidityDelta(
-        addLidTokenAAmount,
-        addLidTokenBAmount,
-        poolState,
-        tokenAInfo
-      );
-
-      // Create position transaction
-      const createPositionTx = await this.createPositionTransaction(
-        positionNft,
-        liquidityDelta,
-        addLidTokenAAmount,
-        addLidTokenBAmount,
-        poolState,
-        tokenAProgram
-      );
-
-      // Build and execute transaction
-      const transaction = new Transaction();
-      transaction.add(...createPositionTx.instructions);
-
-      const signature = await this.executeTransaction(transaction, positionNft);
-
-      return {
-        position: derivePositionAddress(positionNft.publicKey).toString(),
-        positionNft: positionNft.publicKey.toString(),
-        signature,
-      };
     }
-    catch (e) {
-      console.error(`Error creating position and adding liquidity: ${e}`);
-      throw new Error(`Error creating position and adding liquidity: ${e}`);
-    }
+
+    throw new Error(`Position creation failed after ${maxRetries} attempts. Last error: ${lastError?.message}`);
   }
 
   /**

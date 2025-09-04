@@ -846,9 +846,9 @@ ${this.createPoolLink(token.pairAddress)}`;
           tokenBAmount: adjustedSolAmount
         };
 
-        // Create liquidity pool manager instance
+        // Create liquidity pool manager instance with built-in retry mechanism
         const liquidityManager = new LiquidityPoolManager(CONFIG);
-        const result = await liquidityManager.createPositionAndAddLiquidity();
+        const result = await liquidityManager.createPositionAndAddLiquidity(3); // 3 retry attempts with slippage handling
 
         console.log(`Position created successfully on attempt ${attempt}`);
         return result;
@@ -876,7 +876,7 @@ ${this.createPoolLink(token.pairAddress)}`;
       poolAddress: new PublicKey(poolAddress),
       poolType: poolType,
       percentageToZapOut: 100,
-      slippage: 50,
+      slippage: 100,
       inputMint: poolConfig.tokenAMint,
       outputMint: poolConfig.tokenBMint,
     };
