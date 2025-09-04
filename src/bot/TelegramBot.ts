@@ -770,7 +770,7 @@ Scheduled Jobs: ${this.scheduledJobs.length}`;
         rpcUrl: this.config.rpcUrl,
         maxAccounts: 30,
         slippage: 100,
-      });
+      }, 3); // 3 retry attempts
       const swapMessage = `✅ Swapped ${swapAmount} SOL to ${token.symbol}
 Amount: ${swapResult.outputAmount}
 ${this.createSolscanLink(swapResult.signature)}
@@ -795,19 +795,15 @@ ${this.createDexScreenerLink(token.address, token.symbol)}`;
         tokenDecimals
       });
 
-      // create Lidquidity position
-      const CONFIG: PoolConfig = {
-        privateKey: this.config.privateKey,
-        rpcUrl: this.config.rpcUrl,
-        pool: new PublicKey(token.pairAddress),
-        tokenADecimals: tokenDecimals,
-        tokenBDecimals: 9,
-        tokenAAmount: outputTokenAmount,
-        tokenBAmount: remainingSolAmount
-      };
-      // Create liquidity pool manager instance
-      const liquidityManager = new LiquidityPoolManager(CONFIG);
-      const liquidityResult = await liquidityManager.createPositionAndAddLiquidity();
+      // Create liquidity position with retry mechanism
+      const liquidityResult = await this.createPositionWithRetry(
+        token.pairAddress,
+        tokenDecimals,
+        outputTokenAmount,
+        remainingSolAmount,
+        3 // 3 retry attempts
+      );
+
       const positionMessage = `✅ Automated position created for ${token.symbol}
 Position: ${liquidityResult.position}
 ${this.createSolscanLink(liquidityResult.signature)}
@@ -816,6 +812,59 @@ ${this.createPoolLink(token.pairAddress)}`;
     } catch (error) {
       throw new Error(`Failed to create automated position: ${error}`);
     }
+  }
+
+  private async createPositionWithRetry(
+    poolAddress: string,
+    tokenDecimals: number,
+    outputTokenAmount: Decimal,
+    remainingSolAmount: Decimal,
+    maxRetries: number = 3
+  ): Promise<{ position: string; signature: string }> {
+    let lastError: Error | null = null;
+
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      try {
+        console.log(`Position creation attempt ${attempt}/${maxRetries}`);
+
+        // Adjust amounts slightly for retries to handle precision issues
+        const adjustedTokenAmount = attempt > 1 ?
+          outputTokenAmount.mul(new Decimal(0.99)) : // Reduce by 1% on retry
+          outputTokenAmount;
+
+        const adjustedSolAmount = attempt > 1 ?
+          remainingSolAmount.mul(new Decimal(0.99)) : // Reduce by 1% on retry
+          remainingSolAmount;
+
+        const CONFIG: PoolConfig = {
+          privateKey: this.config.privateKey,
+          rpcUrl: this.config.rpcUrl,
+          pool: new PublicKey(poolAddress),
+          tokenADecimals: tokenDecimals,
+          tokenBDecimals: 9,
+          tokenAAmount: adjustedTokenAmount,
+          tokenBAmount: adjustedSolAmount
+        };
+
+        // Create liquidity pool manager instance
+        const liquidityManager = new LiquidityPoolManager(CONFIG);
+        const result = await liquidityManager.createPositionAndAddLiquidity();
+
+        console.log(`Position created successfully on attempt ${attempt}`);
+        return result;
+
+      } catch (error) {
+        lastError = error as Error;
+        console.error(`Position creation attempt ${attempt} failed:`, error);
+
+        if (attempt < maxRetries) {
+          console.log(`Retrying position creation in 3 seconds...`);
+          await new Promise(resolve => setTimeout(resolve, 3000));
+        }
+      }
+    }
+
+    throw new Error(`Position creation failed after ${maxRetries} attempts. Last error: ${lastError?.message}`);
   }
 
   private async zapOutPosition(poolAddress: string, poolType: PoolType = PoolType.DAMM_V2): Promise<void> {
