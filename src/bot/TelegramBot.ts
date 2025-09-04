@@ -413,26 +413,49 @@ ${this.createSolscanLink(result.signature)}`;
         new PublicKey(SOLANA_MINT)
       );
 
-
       // 5. Create positions for new trending tokens
       const tokensToAdd = validTrending.filter(token => !currentPool.has(token.pairAddress));
 
       let total_position = 0;
       if (tokensToAdd.length > 0) {
-        const availableSol = Number(solBalance.formatted) * 0.989; // Use 96% of balance
-        const solPerToken = Math.min(availableSol / tokensToAdd.length, MAX_SOL_PER_TOKEN);
+        const availableSol = Number(solBalance.formatted) * 0.95; // Use 95% of balance
 
+        // Calculate optimal number of tokens to trade with MAX_SOL_PER_TOKEN
+        const optimalTokenCount = Math.floor(availableSol / MAX_SOL_PER_TOKEN);
+
+        let actualTokenCount: number;
+        let solPerToken: number;
+
+        if (optimalTokenCount >= tokensToAdd.length) {
+          // We have enough SOL to trade all tokens with MAX_SOL_PER_TOKEN
+          actualTokenCount = tokensToAdd.length;
+          solPerToken = MAX_SOL_PER_TOKEN;
+        } else if (optimalTokenCount > 0) {
+          // We can trade some tokens with MAX_SOL_PER_TOKEN
+          actualTokenCount = optimalTokenCount;
+          solPerToken = MAX_SOL_PER_TOKEN;
+        } else {
+          // We don't have enough SOL for MAX_SOL_PER_TOKEN, trade all tokens with available SOL
+          actualTokenCount = tokensToAdd.length;
+          solPerToken = availableSol / tokensToAdd.length;
+        }
+
+        // Select the best tokens based on ranking
+        const selectedTokens = tokensToAdd.slice(0, actualTokenCount);
         this.sendMessage(`📊 <b>Trading Plan:</b>
-  Trending tokens: ${tokensToAdd.length}
   Available SOL: ${availableSol.toFixed(4)}
+  Optimal token count: ${optimalTokenCount}
+  Selected tokens: ${selectedTokens.length}
   SOL per token: ${solPerToken.toFixed(4)}`);
-        this.sendMessage(`🚀 Creating ${tokensToAdd.length} new positions...`);
-        if (solPerToken < 0.009) {
+
+        if (optimalTokenCount === 0) {
           this.sendMessage(`🎯 <b>Trading cycle completed!</b>
-        Not enough SOL to create positions`);
+        Not enough SOL to create positions (need at least 0.009 SOL per token)`);
           return;
         }
-        for (const token of tokensToAdd) {
+
+        this.sendMessage(`🚀 Creating ${selectedTokens.length} new positions...`);
+        for (const token of selectedTokens) {
           try {
             await this.createAutomatedPosition(token, solPerToken);
             this.sendMessage(`✅ Position created for ${token.symbol}`);
@@ -446,7 +469,7 @@ ${this.createSolscanLink(result.signature)}`;
         // 6. Summary
         this.sendMessage(`🎯 <b>Trading cycle completed!</b>
         Active positions: ${total_position}
-        Total SOL used: ${(tokensToAdd.length * solPerToken).toFixed(4)}`);
+        Total SOL used: ${(selectedTokens.length * solPerToken).toFixed(4)}`);
       }
       else {
         this.sendMessage(`🎯 <b>Trading cycle completed!</b>
@@ -654,8 +677,8 @@ ${this.createDexScreenerLink(token.address, token.symbol)}`;
         pool: new PublicKey(token.pairAddress),
         tokenADecimals: tokenDecimals,
         tokenBDecimals: 9,
-        tokenAAmount: outputTokenAmount.toNumber(),
-        tokenBAmount: Math.min(remainingSolAmount.toNumber(), 0.5)
+        tokenAAmount: Number(outputTokenAmount.toNumber().toFixed(2)),
+        tokenBAmount: Math.min(remainingSolAmount.toNumber(), 0.05)
       };
       // Create liquidity pool manager instance
       const liquidityManager = new LiquidityPoolManager(CONFIG);

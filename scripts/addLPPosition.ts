@@ -9,10 +9,10 @@ import "dotenv/config";
   const CONFIG: PoolConfig = {
     privateKey,
     rpcUrl: clusterApiUrl("mainnet-beta"),
-    pool: new PublicKey("5UpbPQiWyjE4wmvDiigtLgSXw6uHPZQUaPA1JhUm7bAG"),
-    tokenADecimals: 6,
+    pool: new PublicKey("7weJbY9fmyBwr4dMqPNSQXbQXBJ5W4mJiy2WcN2ereCr"),
+    tokenADecimals: 9,
     tokenBDecimals: 9,
-    tokenAAmount: 623,
+    tokenAAmount: 47509.44,
     tokenBAmount: 0.05, // SOL
   };
 
