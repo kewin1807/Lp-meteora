@@ -504,7 +504,7 @@ export interface TokenProfile {
   labels: string[];
 }
 
-export const getProfileTokenAddress = async (tokenAddresses: string[], existingConfig: { [key: string]: TrendingToken }): Promise<TokenProfile[]> => {
+export const getProfileTokenAddress = async (tokenAddresses: string[], existingConfig?: { [key: string]: TrendingToken }): Promise<TokenProfile[]> => {
   if (tokenAddresses.length > 30) {
     return []
   }
@@ -536,8 +536,8 @@ export const getProfileTokenAddress = async (tokenAddresses: string[], existingC
     },
     fdv: pair.fdv || 0,
     marketCap: pair.marketCap || 0,
-    pairAddress: existingConfig[pair.baseToken?.address]?.pool || '',
-    labels: [existingConfig[pair.baseToken?.address]?.labels || [], pair.labels || []],
+    pairAddress: existingConfig?.[pair.baseToken?.address]?.pool || '',
+    labels: [existingConfig?.[pair.baseToken?.address]?.labels || [], pair.labels || []],
   }));
 }
 
