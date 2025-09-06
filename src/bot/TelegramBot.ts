@@ -3,7 +3,7 @@ import { Connection, clusterApiUrl, PublicKey } from '@solana/web3.js';
 import { LiquidityPoolManager, PoolConfig } from '../LiquidityPoolManager';
 import { ZapOutManager, ZapOutConfig, PoolType } from '../ZapOutManager';
 import { SwapManager } from '../utils/swapUtils';
-import { getProfileTokenAddress, getTokenTrending, TokenProfile, TokenUtils, TPoolLabel, TrendingType } from '../utils/tokenUtils';
+import { getProfileTokenAddress, getTokenTrending, TokenProfile, TokenUtils, TPoolLabel, TrendingType, getPoolState, parsePoolFees, TrendingToken } from '../utils/tokenUtils';
 import * as cron from 'node-cron';
 import { SOLANA_MINT } from '../constants';
 import { CpAmm, getUnClaimReward, PositionState, getAmountAFromLiquidityDelta, getAmountBFromLiquidityDelta, Rounding } from '@meteora-ag/cp-amm-sdk';
@@ -424,16 +424,18 @@ ${this.createSolscanLink(result.signature)}`;
   }
 
   private async handleTrendingCommand() {
-    this.sendMessage("🔥 Fetching trending tokens...");
+    this.sendMessage("🔥 Fetching trending tokens with fee filter...");
 
     try {
       const trendingTokens = await this.getTrendingTokens();
 
-      let message = "🔥 *Trending Tokens (5m):*\n\n";
+      let message = "🔥 <b>Trending Tokens (Filtered by Fee):</b>\n\n";
       trendingTokens.slice(0, 10).forEach((token, index) => {
+        const baseFee = (token as any).baseFee || 'N/A';
         message += `${index + 1}. ${token.symbol} - ${token.priceChange.h24}%\n`;
         message += `   Price: $${token.priceUsd}\n`;
-        message += `   Volume: $${token.volume.h24}\n\n`;
+        message += `   Volume: $${token.volume.h24}\n`;
+        message += `   Base Fee: ${baseFee}%\n\n`;
       });
 
       this.sendMessage(message);
@@ -492,9 +494,8 @@ ${this.createSolscanLink(result.signature)}`;
     const MAX_SOL_PER_TOKEN = parseFloat(process.env.MAX_SOL_PER_TOKEN || "0.1");
 
     try {
-      // 1. Get current trending tokens
-      const trending = await this.getTrendingTokens();
-      const validTrending = trending.filter(token => this.isValidToken(token)).slice(0, MAX_TRENDING_COUNT);
+      // 1. Get current trending tokens (already filtered by isValidToken)
+      const validTrending = await this.getTrendingTokens();
 
       if (validTrending.length === 0) {
         this.sendMessage("⚠️ No valid trending tokens found");
@@ -583,8 +584,9 @@ ${this.createSolscanLink(result.signature)}`;
         this.sendMessage(`🚀 Creating ${selectedTokens.length} new positions...`);
         for (const token of selectedTokens) {
           try {
+            const baseFee = (token as any).baseFee || 'N/A';
             await this.createAutomatedPosition(token, solPerToken);
-            this.sendMessage(`✅ Position created for ${token.symbol}`);
+            this.sendMessage(`✅ Position created for ${token.symbol} (Fee: ${baseFee}%)`);
             total_position += 1
             await new Promise(resolve => setTimeout(resolve, 3000)); // Wait between positions
           } catch (error) {
@@ -680,22 +682,68 @@ Scheduled Jobs: ${this.scheduledJobs.length}`;
 
   private async getTrendingTokens(timeframe: TrendingType = TrendingType.TRENDING_5M): Promise<TokenProfile[]> {
     try {
-      const data = await getTokenTrending(timeframe);
-      const filterData = data.filter(item => item.labels === TPoolLabel.DYN2 && item.base === SOLANA_MINT);
-      const quoteAddresses = Array.from(new Set(filterData.map(item => item.quote).filter(Boolean)));
+      const startTime = Date.now();
+      const TARGET_COUNT = parseInt(process.env.MAX_TRENDING_COUNT || "5");
+      const validProfiles: TokenProfile[] = [];
+      let page = 1;
+      const maxPages = 5;
 
-      if (quoteAddresses.length === 0) return [];
+      while (validProfiles.length < TARGET_COUNT && page <= maxPages) {
+        const data = await getTokenTrending(timeframe, page);
+        const filterData = data.filter(item => item.labels === TPoolLabel.DYN2 && item.base === SOLANA_MINT);
+        const existingConfig: { [key: string]: TrendingToken } = filterData.reduce((acc: { [key: string]: TrendingToken }, item: TrendingToken) => {
+          acc[item.quote] = item;
+          return acc;
+        }, {});
 
-      const chunkSize = 30;
-      const chunks: string[][] = [];
-      for (let i = 0; i < quoteAddresses.length; i += chunkSize) {
-        chunks.push(quoteAddresses.slice(i, i + chunkSize));
+        // Get profiles for this page
+        const quoteAddresses = Array.from(new Set(filterData.map(item => item.quote).filter(Boolean)));
+        if (quoteAddresses.length === 0) {
+          page++;
+          continue;
+        }
+
+        const chunkSize = 30;
+        const chunks: string[][] = [];
+        for (let i = 0; i < quoteAddresses.length; i += chunkSize) {
+          chunks.push(quoteAddresses.slice(i, i + chunkSize));
+        }
+        const profilesBatches = await Promise.all(chunks.map(addresses => getProfileTokenAddress(addresses, existingConfig)));
+        const profiles = profilesBatches.flat();
+
+        // First filter by basic criteria (fast)
+        const basicValidProfiles = profiles.filter(profile => this.isValidTokenBasic(profile));
+
+        if (basicValidProfiles.length === 0) {
+          page++;
+          continue;
+        }
+
+        // Then batch validate with pool state fetching (expensive operations in parallel)
+        // Limit concurrent requests to avoid overwhelming RPC
+        const BATCH_SIZE = 10;
+        const validationResults: boolean[] = [];
+
+        for (let i = 0; i < basicValidProfiles.length; i += BATCH_SIZE) {
+          const batch = basicValidProfiles.slice(i, i + BATCH_SIZE);
+          const batchPromises = batch.map(profile => this.isValidToken(profile));
+          const batchResults = await Promise.all(batchPromises);
+          validationResults.push(...batchResults);
+        }
+
+        // Filter valid tokens
+        for (let i = 0; i < basicValidProfiles.length && validProfiles.length < TARGET_COUNT; i++) {
+          if (validationResults[i]) {
+            validProfiles.push(basicValidProfiles[i]);
+          }
+        }
+
+        page++;
       }
 
-      const profilesBatches = await Promise.all(chunks.map(addresses => getProfileTokenAddress(addresses)));
-      const profiles = profilesBatches.flat();
-
-      return profiles;
+      const endTime = Date.now();
+      console.log(`⚡ Found ${validProfiles.length} valid tokens in ${endTime - startTime}ms`);
+      return validProfiles;
     } catch (error) {
       console.error('Error fetching trending tokens:', error);
       return [];
@@ -711,14 +759,38 @@ Scheduled Jobs: ${this.scheduledJobs.length}`;
     return null;
   }
 
-  private isValidToken(token: TokenProfile): boolean {
-    // Filter criteria for valid tokens
+  private isValidTokenBasic(token: TokenProfile): boolean {
+    // Basic filter criteria (no async needed)
     return (
-      // token.volume.h24 > 10000 && // Min volume $10k
-      // token.liquidity.usd > 5000 && // Min liquidity $5k
-      Number(token.volume.h24) / Number(token.liquidity.usd) >= 1
-      // token.priceUsd > 0 // Valid price
+      Number(token.volume.h24) / Number(token.liquidity.usd) >= 1 &&
+      token.priceUsd > 0
     );
+  }
+
+  private async isValidToken(token: TokenProfile): Promise<boolean> {
+    // Quick basic validation first
+    if (!this.isValidTokenBasic(token)) return false;
+
+    // Check base fee requirement
+
+    try {
+      const poolState = await getPoolState(this.connection, token.pairAddress);
+      const fees = parsePoolFees(poolState);
+      const MIN_BASE_FEE = parseFloat(process.env.MIN_BASE_FEE || "2");
+
+      if (fees.baseFee >= MIN_BASE_FEE) {
+        // Add base fee to token for later use
+        (token as any).baseFee = fees.baseFee;
+        console.log(`✅ Token ${token.symbol}: baseFee=${fees.baseFee}%`);
+        return true;
+      } else {
+        console.log(`❌ Token ${token.symbol}: baseFee=${fees.baseFee}% < ${MIN_BASE_FEE}%`);
+        return false;
+      }
+    } catch (error) {
+      console.error(`Error checking token ${token.symbol} ${token.pairAddress}:`, error);
+      return false;
+    }
   }
 
   private async getTokenFromPool(poolAddress: string): Promise<string | null> {

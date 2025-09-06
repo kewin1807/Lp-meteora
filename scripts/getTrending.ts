@@ -1,4 +1,4 @@
-import { getProfileTokenAddress, getTokenTrending, TPoolLabel, TrendingType } from "../src/utils/tokenUtils";
+import { getProfileTokenAddress, getTokenTrending, TPoolLabel, TrendingToken, TrendingType } from "../src/utils/tokenUtils";
 
 const getTrendingTokens = async (timeframe: TrendingType = TrendingType.TRENDING_5M) => {
   try {
@@ -6,6 +6,10 @@ const getTrendingTokens = async (timeframe: TrendingType = TrendingType.TRENDING
     const filterData = data.filter(item => item.labels === TPoolLabel.DYN2);
     // Collect unique base token addresses
     const quoteAddresses = Array.from(new Set(filterData.map(item => item.quote).filter(Boolean)));
+    const existingConfig: { [key: string]: TrendingToken } = {};
+    for (const item of data) {
+      existingConfig[item.quote] = item;
+    }
 
     if (quoteAddresses.length === 0) return [];
 
@@ -16,7 +20,7 @@ const getTrendingTokens = async (timeframe: TrendingType = TrendingType.TRENDING
       chunks.push(quoteAddresses.slice(i, i + chunkSize));
     }
 
-    const profilesBatches = await Promise.all(chunks.map(addresses => getProfileTokenAddress(addresses)));
+    const profilesBatches = await Promise.all(chunks.map(addresses => getProfileTokenAddress(addresses, existingConfig)));
     const profiles = profilesBatches.flat();
 
     return profiles;

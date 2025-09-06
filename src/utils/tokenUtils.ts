@@ -1,7 +1,7 @@
 import { clusterApiUrl, Connection, PublicKey } from "@solana/web3.js";
 import { getMint, TOKEN_PROGRAM_ID, getAccount, getAssociatedTokenAddress, TOKEN_2022_PROGRAM_ID } from "@solana/spl-token";
 import "dotenv/config";
-import { CpAmm, PositionState } from "@meteora-ag/cp-amm-sdk";
+import { CpAmm, PoolState, PositionState } from "@meteora-ag/cp-amm-sdk";
 import { SOLANA_MINT } from "../constants";
 
 
@@ -504,7 +504,7 @@ export interface TokenProfile {
   labels: string[];
 }
 
-export const getProfileTokenAddress = async (tokenAddresses: string[]): Promise<TokenProfile[]> => {
+export const getProfileTokenAddress = async (tokenAddresses: string[], existingConfig: { [key: string]: TrendingToken }): Promise<TokenProfile[]> => {
   if (tokenAddresses.length > 30) {
     return []
   }
@@ -536,20 +536,82 @@ export const getProfileTokenAddress = async (tokenAddresses: string[]): Promise<
     },
     fdv: pair.fdv || 0,
     marketCap: pair.marketCap || 0,
-    pairAddress: pair.pairAddress || '',
-    labels: pair.labels || [],
+    pairAddress: existingConfig[pair.baseToken?.address]?.pool || '',
+    labels: [existingConfig[pair.baseToken?.address]?.labels || [], pair.labels || []],
   }));
 }
 
+export const getPoolState = async (connection: Connection, poolAddress: string): Promise<PoolState> => {
+  const cpAmm = new CpAmm(connection);
+  const poolState = await cpAmm.fetchPoolState(new PublicKey(poolAddress));
+  return poolState;
+}
 
-// (async () => {
-//   const tokenUtils = new TokenUtils(new Connection(clusterApiUrl("mainnet-beta")))
-//   const balance = await tokenUtils.getTokenBalanceFormattedAuto(new PublicKey("DHu1wzyMQRhyVTmmrmZKN7LbiyAXk8xhrus45EBYPMJT"), new PublicKey('JCBKQBPvnjr7emdQGCNM8wtE8AZjyvJgh7JMvkfYxypm'))
-//   console.log(balance)
+/**
+ * Parse base fee from Meteora pool state to percentage
+ * @param cliffFeeNumerator - The BN value from poolState.poolFees.baseFee.cliffFeeNumerator
+ * @returns The fee percentage as a number (e.g., 4 for 4%)
+ */
+export const parseBaseFeePercentage = (cliffFeeNumerator: any): number => {
+  // Convert BN to number - BN objects have a toString() method that returns decimal by default
+  // We need to get the hex representation first
+  let numerator: number;
 
-//   const solBalance = await tokenUtils.getTokenBalanceFormattedAuto(new PublicKey("DHu1wzyMQRhyVTmmrmZKN7LbiyAXk8xhrus45EBYPMJT"), new PublicKey(SOLANA_MINT))
-//   console.log({ solBalance })
+  if (typeof cliffFeeNumerator === 'object' && cliffFeeNumerator.toString) {
+    // For BN objects, we need to get the hex representation
+    // The BN object shows as <BN: 2625a00> in console, so we need to extract the hex
+    const hexString = cliffFeeNumerator.toString('hex');
+    numerator = parseInt(hexString, 16);
+  } else {
+    numerator = Number(cliffFeeNumerator);
+  }
 
-//   const tokenHolders = await tokenUtils.getWalletTokens(new PublicKey("DHu1wzyMQRhyVTmmrmZKN7LbiyAXk8xhrus45EBYPMJT"))
-//   console.log(tokenHolders)
-// })()
+  // Meteora uses 10^9 as the denominator for base fee calculations
+  // For 4% fee: 40000000 / 10^9 = 0.04, then * 100 = 4%
+  const denominator = Math.pow(10, 9);
+
+  // Calculate percentage: (numerator / denominator) * 100
+  const percentage = (numerator / denominator) * 100;
+
+  return Math.round(percentage * 100) / 100; // Round to 2 decimal places
+}
+
+/**
+ * Parse all pool fees from Meteora pool state
+ * @param poolState - The pool state from getPoolState
+ * @returns Object with parsed fee percentages
+ */
+export const parsePoolFees = (poolState: PoolState) => {
+  const baseFeePercentage = parseBaseFeePercentage(poolState.poolFees.baseFee.cliffFeeNumerator);
+
+  return {
+    baseFee: baseFeePercentage,
+    protocolFeePercent: poolState.poolFees.protocolFeePercent,
+    partnerFeePercent: poolState.poolFees.partnerFeePercent,
+    referralFeePercent: poolState.poolFees.referralFeePercent,
+    // Calculate total fee percentage
+    totalFee: baseFeePercentage + (poolState.poolFees.protocolFeePercent / 100) +
+      (poolState.poolFees.partnerFeePercent / 100) +
+      (poolState.poolFees.referralFeePercent / 100)
+  };
+}
+
+
+(async () => {
+  // const tokenUtils = new TokenUtils(new Connection(clusterApiUrl("mainnet-beta")))
+  // const balance = await tokenUtils.getTokenBalanceFormattedAuto(new PublicKey("DHu1wzyMQRhyVTmmrmZKN7LbiyAXk8xhrus45EBYPMJT"), new PublicKey('JCBKQBPvnjr7emdQGCNM8wtE8AZjyvJgh7JMvkfYxypm'))
+  // console.log(balance)
+
+  // const solBalance = await tokenUtils.getTokenBalanceFormattedAuto(new PublicKey("DHu1wzyMQRhyVTmmrmZKN7LbiyAXk8xhrus45EBYPMJT"), new PublicKey(SOLANA_MINT))
+  // console.log({ solBalance })
+
+  // const tokenHolders = await tokenUtils.getWalletTokens(new PublicKey("DHu1wzyMQRhyVTmmrmZKN7LbiyAXk8xhrus45EBYPMJT"))
+  // console.log(tokenHolders)
+
+  // const poolState = await getPoolState(new Connection(clusterApiUrl("mainnet-beta")), "4jrqvzvetzMUERBTcWMJZjoEc6dJGMMaosDcfbN3cLbA")
+  // console.log("Pool State:", poolState)
+
+  // // Specifically parse the base fee
+  // const baseFeePercentage = parseBaseFeePercentage(poolState.poolFees.baseFee.cliffFeeNumerator);
+  // console.log("Base Fee Percentage:", baseFeePercentage + "%");
+})()
